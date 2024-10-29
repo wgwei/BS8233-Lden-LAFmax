@@ -62,7 +62,7 @@ def main():
     """ walk the job folders and find the survey which have more than 48 hour data"""
     folders = [r"G:\Shared drives\6000 - 6999", r"G:\Shared drives\5000 - 5999", r"G:\Shared drives\4000 - 4999"]
     save_names = [r"D48_6000-6999.csv", r"D48_5000-5999.csv", r"D48_4000-4999.csv"]
-    save_dire = r"C:\Users\WG\Documents\Research\EndAcoustics\Data"
+    save_dire = r"C:\Users\wgang\Documents\Research\EndAcoustics\Data"
     for v in range(len(folders)):
         os.chdir(folders[v])
         print(folders[v])
@@ -91,10 +91,12 @@ def extract_LAeq_LAFmax_dt2(filename):
                         index_max = n
                     if "LAeq_dt" in elem:
                         index_eq = n
+                    if "LASmax_dt" in elem:
+                        index_smax = n
                 break  # find the number of comment rows by finding LAFmax_dt. stop the loop
     
     # read the file again, skip 5 extra row to make sure read valid data
-    date_time, LAFmax_dt, LAeq_dt = [], [], []
+    date_time, LAFmax_dt, LAeq_dt, LASmax_dt = [], [], [], []
     with open(filename) as fn2:
         for _ in range(row_n+5):  # skip row_+5 rows
             next(fn2)
@@ -102,14 +104,15 @@ def extract_LAeq_LAFmax_dt2(filename):
             splited_line = split_data(line)
             if len(splited_line)>0:  # to find the last valid row of data. after that there is an empty row
                 line_time, night = is_nighttime_data(splited_line)
-                if night==1:
+                #if night==1: # 20241028. this line's been commented out to include daytime data.
                     # print(line_time, splited_line[index_max], splited_line[index_eq])
-                    date_time.append(line_time)
-                    LAFmax_dt.append(splited_line[index_max])
-                    LAeq_dt.append(splited_line[index_eq])
+                date_time.append(line_time)
+                LAFmax_dt.append(splited_line[index_max])
+                LAeq_dt.append(splited_line[index_eq])
+                LASmax_dt.append(splited_line[index_smax])
             else:
                 break  # this break avoid load invalid data after the final row
-    df = pd.DataFrame({"Date_time":date_time, "LAFmax_dt":LAFmax_dt, "LAeq_dt":LAeq_dt})
+    df = pd.DataFrame({"Date_time":date_time, "LAFmax_dt":LAFmax_dt, "LAeq_dt":LAeq_dt, "LASmax_dt":LASmax_dt})
     return df
 
 
@@ -140,7 +143,7 @@ def is_nighttime_data(line):
 
 def main2():
     """ Extract the night time data in second resolution"""
-    os.chdir(r"C:\Users\WG\Documents\Research\EndAcoustics")
+    os.chdir(r"C:\Users\wgang\Documents\Research\EndAcoustics")
     # filename = "Data\\Orange_recovery2_KT_2020-10-08_SLM_000_123_Log.txt"
     # df2 = extract_LAeq_LAFmax_dt2(filename)
     # df2.to_csv("Nighttime_data.csv")
@@ -399,6 +402,6 @@ def get_n_minute_survey(filename, n_minutes):
 
 
 if __name__ == '__main__':
-    fn ='100__8998 Former Billingham Business Centre.csv'
-    get_n_minute_survey(fn, 1)  # 1 minute
+    main2()
+    
   

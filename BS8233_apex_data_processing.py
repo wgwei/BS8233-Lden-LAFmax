@@ -250,6 +250,8 @@ def find_24hour_data(filename):
         number_of_seconds_in_24hours = 60*60*24
         number_of_whole_24hr_survey = int(np.floor(df2.shape[0] / number_of_seconds_in_24hours))
 
+        overall_result_list = []
+
         for s in range(number_of_whole_24hr_survey):
             # night time data
             start_Night_time = start_Night_time0 + pd.to_timedelta(s*24, "hours") # when s=0, no shift, when s=1 shift 24 hours 
@@ -259,7 +261,8 @@ def find_24hour_data(filename):
             LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
             LAFmax_2min_average,  LAFmax_2min_sd, LASmax_2min_average,  LASmax_2min_sd, \
             LAeq_8hr_night, LAeq_1hr_samples_night, LAeq_2min_samples_night, \
-            two_minute_time_samples_night, one_hour_time_samples_night] = calc_night_time_metric(df_night)
+            two_minute_time_samples_night, one_hour_time_samples_night,\
+            reduction_to_cause_one_additional_wake, array_LASmax_samples_causing_one_additional_wake] = calc_night_time_metric(df_night)
             
             #daytime data between 07:00 and 19:00, 12hour
             start_daytime = end_night_time
@@ -282,22 +285,25 @@ def find_24hour_data(filename):
             # calculate Lden
             Lden = 10.0*np.log10(1/24.0*(12*10.0**(LAeq_12hr/10) + 4*10.0**((LAeq_4hr+5)/10) + 8*10.0**((LAeq_8hr_night+10)/10)))
 
-        # write the samples out
-        LAx_2min_out = pd.DataFrame({'Date_time': two_minute_time_samples_night,\
-            'LAFmax_2min_samples': LAFmax_2min_samples, \
-            'LASmax_2min_samples': LASmax_2min_samples, \
-            'LAeq_2min_samples': LAeq_2min_samples_night})
-        
-        LAeq_1hr_out = pd.DataFrame({'Date_time': one_hour_time_samples_night+one_hour_time_samples_day, \
-            'LAeq_1hr_samples': LAeq_1hr_samples_night+LAeq_1hr_samples_16hrday})
+            # write the samples out
+            LAx_2min_out = pd.DataFrame({'Date_time': two_minute_time_samples_night,\
+                'LAFmax_2min_samples': LAFmax_2min_samples, \
+                'LASmax_2min_samples': LASmax_2min_samples, \
+                'LAeq_2min_samples': LAeq_2min_samples_night, \
+                'LASmax_external_2min_reduced_to_cause_1AW': array_LASmax_samples_causing_one_additional_wake})
+            
+            LAeq_1hr_out = pd.DataFrame({'Date_time': one_hour_time_samples_night+one_hour_time_samples_day, \
+                'LAeq_1hr_samples': LAeq_1hr_samples_night+LAeq_1hr_samples_16hrday})
 
-        LAx_2min_out.to_csv(base_filename + '_LAx_2min_out.csv')
-        LAeq_1hr_out.to_csv(base_filename + '_LAeq_1hr_out.csv')
+            LAx_2min_out.to_csv(base_filename + '_LAx_2min_out'+'_'+str(s)+'.csv')
+            LAeq_1hr_out.to_csv(base_filename + '_LAeq_1hr_out'+'_'+str(s)+'.csv')
 
-    return [highest_LAFmax_8hr, highest_LASmax_8hr,\
+            overall_result_list.append([base_filename+'_'+str(s), highest_LAFmax_8hr, highest_LASmax_8hr,\
             LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
             LAFmax_2min_average, LAFmax_2min_sd, LASmax_2min_average, LASmax_2min_sd, \
-            LAeq_16hr, LAeq_12hr, LAeq_4hr, LAeq_8hr_night, Lden] 
+            LAeq_16hr, LAeq_12hr, LAeq_4hr, LAeq_8hr_night, Lden, reduction_to_cause_one_additional_wake])
+
+    return  overall_result_list
 
 
 def calc_night_time_metric(df_nighttime_1s, step=120):
@@ -343,11 +349,43 @@ def calc_night_time_metric(df_nighttime_1s, step=120):
 
         one_hour_time_samples.append(df_nighttime_1s['Date_time2'].iloc[ss])
 
+    # calculate reduction for one additional wake
+    [reduction_to_cause_one_additional_wake, array_LASmax_samples_causing_one_additional_wake] = calc_reduction_to_one_additional_wakening(LASmax_2min_samples)
+    
     return [LAFmax_2min_samples, LASmax_2min_samples, highest_LAFmax_8hr, highest_LASmax_8hr, \
     LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
     LAFmax_2min_average,  LAFmax_2min_sd, LASmax_2min_average,  LASmax_2min_sd, \
-    LAeq_8hr, LAeq_1hr_samples, LAeq_2min_samples, two_minute_time_samples, one_hour_time_samples]
+    LAeq_8hr, LAeq_1hr_samples, LAeq_2min_samples, two_minute_time_samples, one_hour_time_samples, \
+    reduction_to_cause_one_additional_wake, array_LASmax_samples_causing_one_additional_wake]
+
+def calc_reduction_to_one_additional_wakening(LASmax_2min_samples):
+    '''
+    calculate the reduction (a constant number applied to all LASmax) when the noise cause one additional wakening
+    1. assume the noise reduction between external and internal is 13 dB 
+    2. calculate the expected number of wakening (S1 sleeping stage) based on the distrubution of LASmax and it's propability to cause wakening
+        i.e. N: number of LASmax (such as 63 dB LASmax appeared 10 times during night time)
+            P: probralibity of causing one additional wakening: Road: Prob. of Wake or S1 = 3.3188 0.0478 LAS,max + 0.0037 (LAS,max)2
+            LASmax: internal LASmax, usually sample every 2 minutes for road traffic
+            E: expected number of awakening
+            E = N*LASmax*P  
+    3. apply an adjust constant to reduce the number of wake to 1
+    '''
+    array_LASmax_samples = np.array(LASmax_2min_samples) - 13 # convert the outdoor noise level to indoor noise level
+    S1_each_sample = -3.3188 - 0.0478*array_LASmax_samples + 0.0037*(array_LASmax_samples)**2  #these are percentages, such as 13 means 13%
+    S1_each_sample[S1_each_sample<0]=0
+    S1 = np.sum(S1_each_sample)
+
+    reduction = 0  
+    while S1 > 100: #100% which means more than 1 additioanl wake
+        reduction =  reduction + 1
+        LASmax_reduced = array_LASmax_samples - reduction
+        S1_each_sample = -3.3188 - 0.0478*LASmax_reduced + 0.0037*(LASmax_reduced)**2  #these are percentages, such as 13 means 13%
+        S1_each_sample[S1_each_sample<0]=0
+        S1 = np.sum(S1_each_sample)
     
+    return [reduction, LASmax_reduced+13]
+
+
 def calc_daytime_12hr_metric(df_daytime, step=120):
     """ df_daytime = dataFrame including["index", "Date_time", "LAFmax_dt", "LAeq_dt", "LASmax_dt"]
         step = in seconds, collect data every step seconds, for example every 120 seconds
@@ -431,7 +469,7 @@ def metrics_to_be_calculated():
     Lden, Lnight, highest LAFmax, 10th highest LAFmax, LAeq,16hr
     based on 2 minute data: average LAFmax and sd, average LASmax and sd 
     Based on 2 minute data: highest LAsmax, 10th highest LASmax
-    reduction to achieve 10th LAmax, reduction to achieve 1AW    
+    reduction to achieve 10th LAmax equal to 45 dB LAFmax, reduction to achieve 1AW    
     '''
     pass
 
@@ -536,14 +574,30 @@ def main4():
     data_cols = ['Directory', 'highest_LAFmax_8hr', 'highest_LASmax_8hr',\
             'LAFmax_2min_10th_in_8hr', 'LASmax_2min_10th_in_8hr', \
             'LAFmax_2min_average',  'LAFmax_2min_sd', 'LASmax_2min_average',  'LASmax_2min_sd', \
-            'LAeq_16hr', 'LAeq_12hr', 'LAeq_4hr', 'LAeq_8hr_night', 'Lden'] 
+            'LAeq_16hr', 'LAeq_12hr', 'LAeq_4hr', 'LAeq_8hr_night', 'Lden', 'reduction_to_cause_one_additional_wake'] 
     
     filename = r"C:\Users\wgang\Documents\Research\EndAcoustics\13__9217 Albion House, North Shields.csv"
+    files = os.listdir(r'C:\Users\wgang\Documents\Research\EndAcoustics\Data')
 
     df = pd.DataFrame(columns=data_cols)
-    result_list = find_24hour_data(filename)
-    row = [[filename] + result_list]   # [[path, LAeq8hr, LAFmax....]]
-    df = pd.DataFrame(row, columns=data_cols)
+
+    rows = []
+    background_survey_jobs = ['4920', '4930', '5019','5451','5838','5944','6160','6244','6475','6540','6558','6645','6837','6885','7068','7069','7213','7269','7466','7551','7648','7775','7838','8050','8080','8226','8435','8468','8480','8596','8601','8785','8806','9127','9164']
+    
+    for fn in files: 
+        for bk in background_survey_jobs:
+            if bk in fn:
+                print('background survey. skip this file')
+            else:
+                print('Processing...', fn)
+                filename = os.path.join(r'C:\Users\wgang\Documents\Research\EndAcoustics\Data', fn)
+                try:
+                    result_list = find_24hour_data(filename)
+                    rows.append(result_list)   # [path, LAeq8hr, LAFmax....]
+                except:
+                    print('File may be empty ->', filename)
+                    print('Access error')
+    df = pd.DataFrame(rows, columns=data_cols)
     df.to_csv('Summary_table_2024.csv')
 
 

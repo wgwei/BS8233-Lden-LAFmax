@@ -215,6 +215,225 @@ def get_nth_LAFmax(LAFmax):
     LAFmax_20 = LAFmax[19]
     return [LAFmax_1, LAFmax_5, LAFmax_10, LAFmax_20]
 
+def get_10th_LAmax(LAmax):
+    '''
+        LAmax = [list of LAmax]
+    '''
+    LAmax.sort(reverse=True)
+    LAmax_10 = LAmax[9]
+    return LAmax_10
+
+def find_24hour_data(filename):
+    ''' this is based on main2() which has extracted the data to five columns
+        column1: serial number 0 to n
+        column2: Date_time
+        Column3: LAFmax_dt
+        Column4: LAeqT_dt
+        Column5: LASmax_dt
+        These job numbers have been identified as background surveys. they are excluded in the analysis. 
+        4920, 4930, 5019,5451,5838,5944,6160,6244,6475,6540,6558,6645,6837,6885,7068,7069,7213,7269,7466,7551,7648,7775,7838,8050,8080,8226,8435,8468,8480,8596,8601,8785,8806,9127,9164
+    '''
+    # filename = r"C:\Users\wgang\Documents\Research\EndAcoustics\13__9217 Albion House, North Shields.csv"
+
+    base_filename = filename.split('\\')[-1]  # 13__9217 Albion House, North Shields.csv
+    base_filename = base_filename.split('.')[0]  # 13__9217 Albion House, North Shields
+
+    df = pd.read_csv(filename, parse_dates=['Date_time'], dayfirst=True)
+    df['Date_time2'] = pd.to_datetime(df['Date_time'])
+
+    # assume the survey was set up during daytime
+    if df['Date_time2'][0].hour >=7 and df['Date_time2'][0].hour<23:
+        start_date = df['Date_time2'][0].date()   #2021-07-01
+        start_Night_time0= pd.to_datetime(str(start_date) + " 23:00:00") # startDate + pd.to_timedelta(23, "hours") # start from 23:00 
+        
+        df2 = df[df['Date_time2']>start_Night_time0]
+        number_of_seconds_in_24hours = 60*60*24
+        number_of_whole_24hr_survey = int(np.floor(df2.shape[0] / number_of_seconds_in_24hours))
+
+        for s in range(number_of_whole_24hr_survey):
+            # night time data
+            start_Night_time = start_Night_time0 + pd.to_timedelta(s*24, "hours") # when s=0, no shift, when s=1 shift 24 hours 
+            end_night_time = start_Night_time + pd.to_timedelta(8,"hours") 
+            df_night = df[(df['Date_time2']>=start_Night_time) & (df['Date_time2'] < end_night_time)]
+            [LAFmax_2min_samples, LASmax_2min_samples, highest_LAFmax_8hr, highest_LASmax_8hr, \
+            LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
+            LAFmax_2min_average,  LAFmax_2min_sd, LASmax_2min_average,  LASmax_2min_sd, \
+            LAeq_8hr_night, LAeq_1hr_samples_night, LAeq_2min_samples_night, \
+            two_minute_time_samples_night, one_hour_time_samples_night] = calc_night_time_metric(df_night)
+            
+            #daytime data between 07:00 and 19:00, 12hour
+            start_daytime = end_night_time
+            end_daytime = start_daytime + pd.to_timedelta(12, "hours")
+            df_daytime_12hr = df[(df['Date_time2']>=start_daytime) & (df['Date_time2'] < end_daytime)]
+            [LAeq_12hr, LAeq_1hr_samples_12hrday, LAeq_2min_samples_12hrday] = calc_daytime_12hr_metric(df_daytime_12hr)
+
+            # daytime between 07:00 and 23:00, 16hour
+            end_daytime_16hr = start_daytime + pd.to_timedelta(16, "hours")
+            df_daytime_16hr = df[(df['Date_time2']>=start_daytime) & (df['Date_time2'] < end_daytime_16hr)]
+            [LAeq_16hr, LAeq_1hr_samples_16hrday, LAeq_2min_samples_16hrday, \
+            two_minute_time_samples_day, one_hour_time_samples_day] = calc_daytime_16hr_metric(df_daytime_16hr)
+
+            #evening data between 19:00 and 23:00, 4hour
+            start_evening_time = end_daytime
+            end_evening_time = start_evening_time + pd.to_timedelta(4, "hours")
+            df_evening = df[(df['Date_time2']>=start_evening_time) & (df['Date_time2'] < end_evening_time)]
+            [LAeq_4hr, LAeq_1hr_samples_evening, LAeq_2min_samples_evening] = calc_evening_metric(df_evening)
+
+            # calculate Lden
+            Lden = 10.0*np.log10(1/24.0*(12*10.0**(LAeq_12hr/10) + 4*10.0**((LAeq_4hr+5)/10) + 8*10.0**((LAeq_8hr_night+10)/10)))
+
+        # write the samples out
+        LAx_2min_out = pd.DataFrame({'Date_time': two_minute_time_samples_night,\
+            'LAFmax_2min_samples': LAFmax_2min_samples, \
+            'LASmax_2min_samples': LASmax_2min_samples, \
+            'LAeq_2min_samples': LAeq_2min_samples_night})
+        
+        LAeq_1hr_out = pd.DataFrame({'Date_time': one_hour_time_samples_night+one_hour_time_samples_day, \
+            'LAeq_1hr_samples': LAeq_1hr_samples_night+LAeq_1hr_samples_16hrday})
+
+        LAx_2min_out.to_csv(base_filename + '_LAx_2min_out.csv')
+        LAeq_1hr_out.to_csv(base_filename + '_LAeq_1hr_out.csv')
+
+    return [highest_LAFmax_8hr, highest_LASmax_8hr,\
+            LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
+            LAFmax_2min_average, LAFmax_2min_sd, LASmax_2min_average, LASmax_2min_sd, \
+            LAeq_16hr, LAeq_12hr, LAeq_4hr, LAeq_8hr_night, Lden] 
+
+
+def calc_night_time_metric(df_nighttime_1s, step=120):
+    """ df_nightime_1s = dataFrame including["index", "Date_time", "LAFmax_dt", "LAeq_dt", "LASmax_dt"]
+        step = in seconds, collect data every step seconds, for example every 120 seconds
+    """
+    # calculate parameters smaples, i.e. every 2 minutes
+    sec_in_8hr = 60*60*8  # how many secons in 8 hours
+    LAFmax_2min_samples, LASmax_2min_samples, LAeq_2min_samples, LAeq_1hr_samples = [], [], [], []
+    two_minute_time_samples, one_hour_time_samples = [], []
+
+    for m in range(int(sec_in_8hr/step)):
+        ss = m * step
+        es = (m + 1) * step
+        LAFmax1s_1unit = df_nighttime_1s["LAFmax_dt"][ss:es].values
+        LASmax1s_1unit = df_nighttime_1s["LASmax_dt"][ss:es].values
+        LAeq1s_1unit = np.array(df_nighttime_1s["LAeq_dt"][ss:es].values)
+
+        LAFmax_2min_samples.append(np.max(LAFmax1s_1unit))
+        LASmax_2min_samples.append(np.max(LASmax1s_1unit))
+        LAeq_2min_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_1unit/10.0))))
+
+        two_minute_time_samples.append(df_nighttime_1s['Date_time2'].iloc[ss])
+
+    # calcualte 10th LAFmax, 10th LASmax, LAeq_8hr, highest LAFmax and highest LASmax
+    LAFmax_2min_10th_in_8hr = get_10th_LAmax(LAFmax_2min_samples)
+    LASmax_2min_10th_in_8hr = get_10th_LAmax(LASmax_2min_samples)
+    highest_LAFmax_8hr = max(LAFmax_2min_samples)
+    highest_LASmax_8hr= max(LASmax_2min_samples)
+    LAFmax_2min_average = mean(LAFmax_2min_samples)
+    LASmax_2min_average = mean(LASmax_2min_samples)
+    LAFmax_2min_sd = np.std(LAFmax_2min_samples)
+    LASmax_2min_sd = np.std(LASmax_2min_samples)
+    LAeq_8hr = 10.0*np.log10(np.average(10.0**(df_nighttime_1s['LAeq_dt'].values/10)))
+
+    # calculation hourly LAeq,1h
+    seconds_in_an_hour = 60*60
+    for m in range(int(8)):  # 8 hours between 23:00 and 07:00
+        ss = m * seconds_in_an_hour
+        es = (m + 1) * seconds_in_an_hour
+        LAeq1s_in_an_hour = np.array(df_nighttime_1s["LAeq_dt"][ss:es].values)
+        LAeq_1hr_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_in_an_hour/10.0))))
+
+        one_hour_time_samples.append(df_nighttime_1s['Date_time2'].iloc[ss])
+
+    return [LAFmax_2min_samples, LASmax_2min_samples, highest_LAFmax_8hr, highest_LASmax_8hr, \
+    LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
+    LAFmax_2min_average,  LAFmax_2min_sd, LASmax_2min_average,  LASmax_2min_sd, \
+    LAeq_8hr, LAeq_1hr_samples, LAeq_2min_samples, two_minute_time_samples, one_hour_time_samples]
+    
+def calc_daytime_12hr_metric(df_daytime, step=120):
+    """ df_daytime = dataFrame including["index", "Date_time", "LAFmax_dt", "LAeq_dt", "LASmax_dt"]
+        step = in seconds, collect data every step seconds, for example every 120 seconds
+    """
+    sec_in_12hr = 60*60*12  # how many secons in 12 hours
+    LAeq_2min_samples, LAeq_1hr_samples = [], []
+
+    for m in range(int(sec_in_12hr/step)):
+        ss = m * step
+        es = (m + 1) * step
+        LAeq1s_1unit = np.array(df_daytime["LAeq_dt"][ss:es].values)
+        LAeq_2min_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_1unit/10.0))))  
+    LAeq_12hr = 10.0*np.log10(np.average(10.0**(df_daytime['LAeq_dt'].values/10)))
+
+    # calculation hourly LAeq,1h
+    seconds_in_an_hour = 60*60
+    for m in range(int(12)):  # 12 hours between 07:00 and 19:00
+        ss = m * seconds_in_an_hour
+        es = (m + 1) * seconds_in_an_hour
+        LAeq1s_in_an_hour = np.array(df_daytime["LAeq_dt"][ss:es].values)
+        LAeq_1hr_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_in_an_hour/10.0))))
+
+    return [LAeq_12hr, LAeq_1hr_samples, LAeq_2min_samples]
+    
+def calc_daytime_16hr_metric(df_daytime, step=120):
+    """ df_daytime = dataFrame including["index", "Date_time", "LAFmax_dt", "LAeq_dt", "LASmax_dt"]
+        step = in seconds, collect data every step seconds, for example every 120 seconds
+    """
+    sec_in_16hr = 60*60*16  # how many secons in 16 hours
+    LAeq_2min_samples, LAeq_1hr_samples = [], []
+    two_minute_time_samples, one_hour_time_samples = [], []
+
+    for m in range(int(sec_in_16hr/step)):
+        ss = m * step
+        es = (m + 1) * step
+        LAeq1s_1unit = np.array(df_daytime["LAeq_dt"][ss:es].values)
+        LAeq_2min_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_1unit/10.0))))  
+
+        two_minute_time_samples.append(df_daytime['Date_time2'].iloc[ss])
+
+    LAeq_16hr = 10.0*np.log10(np.average(10.0**(df_daytime['LAeq_dt'].values/10)))
+
+    # calculation hourly LAeq,1h
+    seconds_in_an_hour = 60*60
+    for m in range(int(16)):  # 16 hours between 07:00 and 19:00
+        ss = m * seconds_in_an_hour
+        es = (m + 1) * seconds_in_an_hour
+        LAeq1s_in_an_hour = np.array(df_daytime["LAeq_dt"][ss:es].values)
+        LAeq_1hr_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_in_an_hour/10.0))))
+
+        one_hour_time_samples.append(df_daytime['Date_time2'].iloc[ss])
+
+    return [LAeq_16hr, LAeq_1hr_samples, LAeq_2min_samples, two_minute_time_samples, one_hour_time_samples]
+
+def calc_evening_metric(df_evening, step=120):
+    """ df_evening = dataFrame including["index", "Date_time", "LAFmax_dt", "LAeq_dt", "LASmax_dt"]
+        step = in seconds, collect data every step seconds, for example every 120 seconds
+    """
+    sec_in_4hr = 60*60*4  # how many secons in 4 hours
+    LAeq_2min_samples, LAeq_1hr_samples = [], []
+
+    for m in range(int(sec_in_4hr/step)):
+        ss = m * step
+        es = (m + 1) * step
+        LAeq1s_1unit = np.array(df_evening["LAeq_dt"][ss:es].values)
+        LAeq_2min_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_1unit/10.0))))  
+    LAeq_4hr = 10.0*np.log10(np.average(10.0**(df_evening['LAeq_dt'].values/10)))
+
+    # calculation hourly LAeq,1h
+    seconds_in_an_hour = 60*60
+    for m in range(int(4)):  # 4 hours between 07:00 and 19:00
+        ss = m * seconds_in_an_hour
+        es = (m + 1) * seconds_in_an_hour
+        LAeq1s_in_an_hour = np.array(df_evening["LAeq_dt"][ss:es].values)
+        LAeq_1hr_samples.append(10.0*np.log10(np.average(10.0**(LAeq1s_in_an_hour/10.0))))
+
+    return [LAeq_4hr, LAeq_1hr_samples, LAeq_2min_samples]
+
+def metrics_to_be_calculated():
+    '''
+    Lden, Lnight, highest LAFmax, 10th highest LAFmax, LAeq,16hr
+    based on 2 minute data: average LAFmax and sd, average LASmax and sd 
+    Based on 2 minute data: highest LAsmax, 10th highest LASmax
+    reduction to achieve 10th LAmax, reduction to achieve 1AW    
+    '''
+    pass
 
 def calc_LAeq8hr_LAFmax(filename):
     """ filename = file contains only nighttime data ["index", "Date_time", "LAFmax_dt", "LAeq_dt"] the resolution is most likely to be 1 second
@@ -312,6 +531,22 @@ def main3():
     df.to_csv('Summary_table.csv')
 
 
+def main4():
+    """ calculate Laeq8hr, LAFmax, LASmax, export data samples in 2 minute interval """
+    data_cols = ['Directory', 'highest_LAFmax_8hr', 'highest_LASmax_8hr',\
+            'LAFmax_2min_10th_in_8hr', 'LASmax_2min_10th_in_8hr', \
+            'LAFmax_2min_average',  'LAFmax_2min_sd', 'LASmax_2min_average',  'LASmax_2min_sd', \
+            'LAeq_16hr', 'LAeq_12hr', 'LAeq_4hr', 'LAeq_8hr_night', 'Lden'] 
+    
+    filename = r"C:\Users\wgang\Documents\Research\EndAcoustics\13__9217 Albion House, North Shields.csv"
+
+    df = pd.DataFrame(columns=data_cols)
+    result_list = find_24hour_data(filename)
+    row = [[filename] + result_list]   # [[path, LAeq8hr, LAFmax....]]
+    df = pd.DataFrame(row, columns=data_cols)
+    df.to_csv('Summary_table_2024.csv')
+
+
 def plot_output():
     summary = pd.read_csv('Summary_table.csv')
     summary = summary[summary['LAeq_8hr_day1']>0]  # remove the rows only have zeros
@@ -402,6 +637,6 @@ def get_n_minute_survey(filename, n_minutes):
 
 
 if __name__ == '__main__':
-    main2()
+    main4()
     
   

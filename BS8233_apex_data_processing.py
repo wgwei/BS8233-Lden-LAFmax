@@ -285,18 +285,18 @@ def find_24hour_data(filename):
             # calculate Lden
             Lden = 10.0*np.log10(1/24.0*(12*10.0**(LAeq_12hr/10) + 4*10.0**((LAeq_4hr+5)/10) + 8*10.0**((LAeq_8hr_night+10)/10)))
 
-            # write the samples out
-            LAx_2min_out = pd.DataFrame({'Date_time': two_minute_time_samples_night,\
-                'LAFmax_2min_samples': LAFmax_2min_samples, \
-                'LASmax_2min_samples': LASmax_2min_samples, \
-                'LAeq_2min_samples': LAeq_2min_samples_night, \
-                'LASmax_external_2min_reduced_to_cause_1AW': array_LASmax_samples_causing_one_additional_wake})
+            # # write the samples out
+            # LAx_2min_out = pd.DataFrame({'Date_time': two_minute_time_samples_night,\
+            #     'LAFmax_2min_samples': LAFmax_2min_samples, \
+            #     'LASmax_2min_samples': LASmax_2min_samples, \
+            #     'LAeq_2min_samples': LAeq_2min_samples_night, \
+            #     'LASmax_external_2min_reduced_to_cause_1AW': array_LASmax_samples_causing_one_additional_wake})
             
-            LAeq_1hr_out = pd.DataFrame({'Date_time': one_hour_time_samples_night+one_hour_time_samples_day, \
-                'LAeq_1hr_samples': LAeq_1hr_samples_night+LAeq_1hr_samples_16hrday})
+            # LAeq_1hr_out = pd.DataFrame({'Date_time': one_hour_time_samples_night+one_hour_time_samples_day, \
+            #     'LAeq_1hr_samples': LAeq_1hr_samples_night+LAeq_1hr_samples_16hrday})
 
-            LAx_2min_out.to_csv(base_filename + '_LAx_2min_out'+'_'+str(s)+'.csv')
-            LAeq_1hr_out.to_csv(base_filename + '_LAeq_1hr_out'+'_'+str(s)+'.csv')
+            # LAx_2min_out.to_csv(base_filename + '_LAx_2min_out'+'_'+str(s)+'.csv')
+            # LAeq_1hr_out.to_csv(base_filename + '_LAeq_1hr_out'+'_'+str(s)+'.csv')
 
             overall_result_list.append([base_filename+'_'+str(s), highest_LAFmax_8hr, highest_LASmax_8hr,\
             LAFmax_2min_10th_in_8hr, LASmax_2min_10th_in_8hr, \
@@ -582,21 +582,22 @@ def main4():
     df = pd.DataFrame(columns=data_cols)
 
     rows = []
-    background_survey_jobs = ['4920', '4930', '5019','5451','5838','5944','6160','6244','6475','6540','6558','6645','6837','6885','7068','7069','7213','7269','7466','7551','7648','7775','7838','8050','8080','8226','8435','8468','8480','8596','8601','8785','8806','9127','9164']
+    background_survey_jobs = ['4920 4930 5019 5451 5838 5944 6160 6244 6475 6540 6558 6645 6837 6885 7068 7069 7213 7269 7466 7551 7648 7775 7838 8050 8080 8226 8435 8468 8480 8596 8601 8785 8806 9127 9164']
     
     for fn in files: 
-        for bk in background_survey_jobs:
-            if bk in fn:
-                print('background survey. skip this file')
-            else:
-                print('Processing...', fn)
-                filename = os.path.join(r'C:\Users\wgang\Documents\Research\EndAcoustics\Data', fn)
-                try:
-                    result_list = find_24hour_data(filename)
-                    rows.append(result_list)   # [path, LAeq8hr, LAFmax....]
-                except:
-                    print('File may be empty ->', filename)
-                    print('Access error')
+        #get job number
+        job_number = fn.split('__')[1].split(' ')[0]  #0__7128 Ashfield Towers, Kenton Road, Gosforth
+        if job_number in background_survey_jobs:
+            print('background survey. skip this file')
+        else:
+            print('Processing...', fn)
+            filename = os.path.join(r'C:\Users\wgang\Documents\Research\EndAcoustics\Data', fn)
+            try:
+                result_list = find_24hour_data(filename)
+                rows = rows + result_list   # [path, LAeq8hr, LAFmax....]
+            except:
+                # print('File may be empty ->', filename)
+                print('Access error')
     df = pd.DataFrame(rows, columns=data_cols)
     df.to_csv('Summary_table_2024.csv')
 
